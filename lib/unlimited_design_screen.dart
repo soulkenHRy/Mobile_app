@@ -6,6 +6,7 @@ import 'system_design_canvas_screen_fixed.dart';
 import 'inline_training_data_ai_service.dart'; // Use the pure Dart AI service
 import 'design_manager.dart';
 import 'saved_designs_list_screen.dart';
+import 'leaderboard_api_service.dart';
 
 class UnlimitedDesignScreen extends StatefulWidget {
   final SavedDesign? initialDesign;
@@ -313,6 +314,12 @@ class _UnlimitedDesignScreenState extends State<UnlimitedDesignScreen>
         // UPDATE USER SCORE HISTORY for leaderboard scoring algorithm
         final newTotalScore = prefs.getInt('user_total_best_score') ?? 0;
         await _updateUserScoreHistory(prefs, newTotalScore);
+
+        // Submit score to online leaderboard (async, non-blocking)
+        _submitScoreToOnlineLeaderboard(
+          'Unlimited Design: $_currentSystemName',
+          currentScore,
+        );
 
         // Verify the save worked
         final verifyScore = prefs.getInt(bestScoreKey);
@@ -664,6 +671,22 @@ class _UnlimitedDesignScreenState extends State<UnlimitedDesignScreen>
 
     print('📈 SCORE HISTORY UPDATED: Added score $currentScore to history');
     print('📊 Total history entries: ${scoreHistory.length}');
+  }
+
+  /// Submit score to the online leaderboard API (non-blocking)
+  void _submitScoreToOnlineLeaderboard(String systemName, int score) async {
+    try {
+      if (LeaderboardApiConfig.useOnlineLeaderboard) {
+        await LeaderboardApiService.instance.submitScore(
+          systemName: systemName,
+          score: score,
+        );
+        print('🌐 Score submitted to online leaderboard: $systemName = $score');
+      }
+    } catch (e) {
+      // Silently fail - online leaderboard is optional
+      print('Failed to submit score to online leaderboard: $e');
+    }
   }
 
   // Update total best score by calculating sum of all best scores

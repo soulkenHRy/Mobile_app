@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'system_database_manager.dart';
 import 'ai_feedback_system.dart';
 import 'evaluation_result.dart';
+import 'leaderboard_api_service.dart';
 
 class SystemDescriptionNotebook extends StatefulWidget {
   final String? systemId;
@@ -157,6 +158,27 @@ class _SystemDescriptionNotebookState extends State<SystemDescriptionNotebook> {
 
     // Update the user's overall best score for leaderboard display (from all systems)
     await _updateOverallBestScore(prefs);
+
+    // Submit score to online leaderboard (async, non-blocking)
+    _submitScoreToOnlineLeaderboard(
+      widget.systemName ?? displaySystemName,
+      result.score,
+    );
+  }
+
+  /// Submit score to the online leaderboard API (non-blocking)
+  void _submitScoreToOnlineLeaderboard(String systemName, int score) async {
+    try {
+      if (LeaderboardApiConfig.useOnlineLeaderboard) {
+        await LeaderboardApiService.instance.submitScore(
+          systemName: systemName,
+          score: score,
+        );
+      }
+    } catch (e) {
+      // Silently fail - online leaderboard is optional
+      print('Failed to submit score to online leaderboard: $e');
+    }
   }
 
   Future<void> _updateOverallBestScore(SharedPreferences prefs) async {

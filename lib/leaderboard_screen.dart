@@ -5,6 +5,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:io';
+import 'leaderboard_api_service.dart';
 
 Future<List<Map<String, dynamic>>> _generateStaticBots() async {
   // Get device-specific seed for consistent but unique bot generation per device
@@ -1107,8 +1108,23 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     }
 
     // Add persistent bots to the leaderboard
-    final bots = await _getPersistentBots();
-    leaderboard.addAll(bots);
+    // Try to fetch online leaderboard first, fall back to bots if unavailable
+    final onlineUsers = await _fetchOnlineLeaderboard(
+      prefs,
+      userCountry,
+      totalBestScore,
+      systemCount,
+      userEvaluations,
+    );
+
+    if (onlineUsers != null && onlineUsers.isNotEmpty) {
+      // Use online leaderboard data
+      leaderboard.addAll(onlineUsers);
+    } else {
+      // Fall back to persistent bots (offline mode)
+      final bots = await _getPersistentBots();
+      leaderboard.addAll(bots);
+    }
 
     // Sort by score (highest first) and add rankings
     leaderboard.sort((a, b) => b['score'].compareTo(a['score']));
@@ -1165,6 +1181,75 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     }
 
     await prefs.setStringList('user_score_history', scoreHistory);
+  }
+
+  /// Fetch online leaderboard data from the backend API
+  /// Returns null if online leaderboard is unavailable (falls back to bots)
+  Future<List<Map<String, dynamic>>?> _fetchOnlineLeaderboard(
+    SharedPreferences prefs,
+    String userCountry,
+    int totalBestScore,
+    int systemCount,
+    List<Map<String, dynamic>> userEvaluations,
+  ) async {
+    // Check if online leaderboard is enabled
+    if (!LeaderboardApiConfig.useOnlineLeaderboard) {
+      return null;
+    }
+
+    try {
+      final apiService = LeaderboardApiService.instance;
+
+      // First, sync the current user's scores to the server
+      final username = prefs.getString('userName') ?? _getSystemUsername();
+
+      // Register/update user and sync scores
+      await apiService.registerUser(username: username, country: userCountry);
+      await apiService.syncAllScores();
+
+      // Fetch the global leaderboard
+      final result = await apiService.getLeaderboard(limit: 100);
+
+      if (result == null || result.users.isEmpty) {
+        return null;
+      }
+
+      // Convert online users to the format expected by the UI
+      final onlineUsers = <Map<String, dynamic>>[];
+      final currentUserId = await apiService.getUserId();
+
+      for (final user in result.users) {
+        // Skip if this is the current user (already added to leaderboard)
+        if (user.odId == currentUserId) {
+          continue;
+        }
+
+        onlineUsers.add({
+          'username': user.username,
+          'country': user.country,
+          'score': user.totalScore,
+          'systemsDesigned': user.systemsDesigned,
+          'averageScore': user.averageScore,
+          'evaluations':
+              user.evaluations
+                  .map(
+                    (e) => {
+                      'systemName': e.systemName,
+                      'score': e.score,
+                      'timestamp': e.timestamp,
+                    },
+                  )
+                  .toList(),
+          'isBot': false,
+          'isOnlineUser': true,
+        });
+      }
+
+      return onlineUsers;
+    } catch (e) {
+      print('Error fetching online leaderboard: $e');
+      return null;
+    }
   }
 
   Future<List<Map<String, dynamic>>> _getPersistentBots() async {
